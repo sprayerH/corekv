@@ -1,9 +1,11 @@
 package utils
 
 import (
-	"github.com/hardcore-os/corekv/utils/codec"
+	"bytes"
 	"math/rand"
 	"sync"
+
+	"github.com/hardcore-os/corekv/utils/codec"
 )
 
 const (
@@ -23,7 +25,13 @@ type SkipList struct {
 
 func NewSkipList() *SkipList {
 	//implement me here!!!
-	return nil
+	return &SkipList{
+		header: &Element{
+			levels: make([]*Element, defaultMaxLevel),
+		},
+		rand:     r,
+		maxLevel: defaultMaxLevel - 1,
+	}
 }
 
 type Element struct {
@@ -34,7 +42,7 @@ type Element struct {
 
 func newElement(score float64, entry *codec.Entry, level int) *Element {
 	return &Element{
-		levels: make([]*Element, level),
+		levels: make([]*Element, level+1),
 		entry:  entry,
 		score:  score,
 	}
@@ -45,12 +53,60 @@ func (elem *Element) Entry() *codec.Entry {
 }
 
 func (list *SkipList) Add(data *codec.Entry) error {
-	//implement me here!!!
+	list.lock.Lock()
+	defer list.lock.Unlock()
+
+	prevs := make([]*Element, list.maxLevel+1)
+
+	key := data.Key
+	score := list.calcScore(data.Key)
+	prev := list.header
+	maxLevel := list.maxLevel
+	for i := maxLevel; i >= 0; i-- {
+		for next := prev.levels[i]; next != nil; next = prev.levels[i] {
+			if result := list.compare(score, key, next); result <= 0 {
+				if result == 0 {
+					next.entry = data
+					return nil
+				} else {
+					prev = next
+				}
+			} else {
+				break
+			}
+		}
+		prevs[i] = prev
+	}
+
+	randomLevel := list.randLevel()
+	elem := newElement(score, data, randomLevel+1)
+	for i := 0; i <= randomLevel; i++ {
+		next := prevs[i].levels[i]
+		prevs[i].levels[i] = elem
+		elem.levels[i] = next
+	}
 	return nil
 }
 
 func (list *SkipList) Search(key []byte) (e *codec.Entry) {
-	//implement me here!!!
+	list.lock.RLock()
+	defer list.lock.RUnlock()
+
+	score := list.calcScore(key)
+	prev := list.header
+	for i := list.maxLevel; i >= 0; i-- {
+		for next := prev.levels[i]; next != nil; next = prev.levels[i] {
+			if result := list.compare(score, key, next); result <= 0 {
+				if result == 0 {
+					return next.entry
+				} else {
+					prev = next
+				}
+			} else {
+				break
+			}
+		}
+	}
 	return nil
 }
 
@@ -76,16 +132,27 @@ func (list *SkipList) calcScore(key []byte) (score float64) {
 }
 
 func (list *SkipList) compare(score float64, key []byte, next *Element) int {
-	//implement me here!!!
-	return 0
+	if score == next.score {
+		return bytes.Compare(key, next.entry.Key)
+	}
+
+	if score < next.score {
+		return -1
+	} else {
+		return 1
+	}
 }
 
 func (list *SkipList) randLevel() int {
-	//implement me here!!!
-	return 0
+	for i := 1; i < list.maxLevel; i++ {
+		if list.rand.Intn(2) == 0 {
+			return i
+		}
+	}
+	return list.maxLevel
 }
 
 func (list *SkipList) Size() int64 {
 	//implement me here!!!
-	return 0
+	return list.size
 }
